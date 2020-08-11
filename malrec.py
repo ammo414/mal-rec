@@ -9,6 +9,9 @@ jikan = Jikan()
 
 
 def watchlists(user, score):
+    # create watch list of completed and currently watching anime to seed rec generation
+    # user : MAL username
+    # score : score threshold; only consider anime at or above score value when generating recs
 
     animelst = jikan.user(username = user, request = 'animelist')
     compcurr = {}
@@ -19,63 +22,64 @@ def watchlists(user, score):
 
     idlst = [a['mal_id'] for a in animelst['anime']]
 
+    # compcurr: completed and currently watching anime list
+    # idlst : list of MAL IDs for all anime in watchlist (includes dropped, plan to watch, on hold)
     return compcurr, idlst
 
 
 def recpull(compcurr, idlst):
+    # scrape recs from mal.net
+    # records recs's score and how often its been recommended across compcurr list
+
+    lim = max(3, 10 - round(sqrt(len(compcurr))))
 
     recs = {}
-    recs2check = {1:7, 2:5, 3:3, 4:2, 5:2}
-
-    lim = recs2check[len(str(len(compcurr)))]
-
-    for x in compcurr:
-        print('Pulling recs for', x)
-        recstemp = []
+    for i, x in enumerate(compcurr):
+        print('Pulling recs for', x, f'{i+1}/{len(compcurr)}')
         page = requests.get(compcurr[x][0])
         soup = bs(page.content, features = 'html.parser')
-        temp = re.findall(r'https://myanimelist.net/anime/\d+/\w+"', str(soup))
-        [recstemp.append(i) for i in temp if i not in recstemp]
-        recstemp.pop(0)
-        recstemp = recstemp[:lim]
+        recstemp = re.findall(r'https://myanimelist.net/anime/\d+/\w+"', str(soup))  # all recommended anime for x
 
-        for y in recstemp:
+        filtedrecs = []
+        [filtedrecs.append(i) for i in recstemp if i not in filtedrecs and int(re.findall(r'\d+', i)[0]) not in idlst]
+        filtedrecs = filtedrecs[:lim]  # filtered if already in filtedrecs or if already in MAL account
+
+        for y in filtedrecs:
             atitle = re.findall(r'/\w+', y)[3]
             atitle = re.sub(r'[^0-9a-zA-Z ]', '', atitle.replace('_', ' '))
             print('Evaluating', atitle)
+
             aid = int(re.findall(r'\d+', y)[0])
+            anime = jikan.anime(aid)
 
-            if aid in idlst:
-                print('        Already in MAL')
-
+            if anime['title'] in recs:
+                print(f'        Already evaluated { recs[anime["title"]][0]} times')
+                recs[anime['title']][0] += 1
+            elif anime['score'] >= 6.9:
+                print('        Might recommend')
+                recs[anime['title']] = [1, anime['score'], y]
             else:
-                anime = jikan.anime(aid)
+                print('        Not recommend')
+            sleep(2)
 
-                if anime['title'] in recs:
-                    print(f'        Already evaluated { recs[anime["title"]][0]} times')
-                    recs[anime['title']][0] += 1
-                elif anime['score'] >= 6.9:
-                    print('        Might recommend')
-                    recs[anime['title']] = [1, anime['score'], y]
-                else:
-                    print('        Not recommend')
-                sleep(2)
-
+    # recs: dict of {anime title: [total number of times recommended, anime score, anime url]}
     return recs
 
 
 def finallist(recs, compcurr):
+    # filters recs one last time to find top recommendations based on score and frequency of recommendation
 
     finallst = []
-    scorethreshold = {1:6.9, 2:7.4, 3:7.9, 4:8.4, 5:8.9}
-    st = scorethreshold[len(str(len(compcurr)))]
+    scorethreshold = 6.4 + 0.5*len(str(len(compcurr)))
     urllst = [recs[x][2] for x in recs]
 
     for i, x in enumerate(recs):
-
-        if recs[x][0] >= max(int(sqrt(len(compcurr))), 2):
+        
+        if recs[x][0] >= max(round(sqrt(len(compcurr))), 2):
             finallst.append((x, urllst[i], f'Recommended {recs[x][0]} times'))
-        elif recs[x][1] >= st:
-            finallst.append((x, urllst[i], f'Rating of {recs[x][1]}'))
+            # if x was recommended at least a certain number of times, it'll be recommended
+        elif recs[x][1] >= scorethreshold:
+            finallst.append((x, urllst[i], f'Score of {recs[x][1]}'))
+            # if x's score is above a threshold, it'll be recommended
 
     return finallst
