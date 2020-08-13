@@ -1,4 +1,4 @@
-from jikanpy import Jikan
+from jikanpy import Jikan, exceptions
 import requests
 from bs4 import BeautifulSoup as bs
 import re
@@ -50,7 +50,11 @@ def recpull(compcurr, idlst):
             print('Evaluating', atitle)
 
             aid = int(re.findall(r'\d+', y)[0])
-            anime = jikan.anime(aid)
+            try:
+                anime = jikan.anime(aid)
+            except exceptions.APIException:
+                print('503 Error')
+                return recs
 
             if anime['title'] in recs:
                 print(f'        Already evaluated { recs[anime["title"]][0]} times')
